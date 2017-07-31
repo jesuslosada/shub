@@ -67,7 +67,7 @@ def list_cmd(image_name, project, endpoint, apikey):
     settings = _get_project_settings(project, endpoint, apikey)
     environment = {'JOB_SETTINGS': json.dumps(settings)}
     exit_code, logs = _run_cmd_in_docker_container(
-            image_name, 'shub-image-info', environment)
+        image_name, 'shub-image-info', environment)
     if exit_code == 0:
         return _extract_metadata_from_image_info_output(logs)
     # shub-image-info command not found, fallback to list-spiders
@@ -80,7 +80,6 @@ def list_cmd(image_name, project, endpoint, apikey):
         if exit_code != 0:
             click.echo(logs)
             raise ShubException('Container with list cmd exited with code %s' % exit_code)
-        logs = logs.decode('utf-8') if isinstance(logs, binary_type) else logs
         return {
             'project_type': 'scrapy',
             'spiders': utils.valid_spiders(logs.splitlines()),
@@ -119,6 +118,8 @@ def _run_cmd_in_docker_container(image_name, command, environment):
         client.start(container)
     except docker.errors.APIError as e:
         explanation = e.explanation or ''
+        if isinstance(explanation, binary_type):
+            explanation = explanation.decode('utf-8')
         if 'executable file not found' in explanation:
             # docker.errors.APIError: 500 Server Error:
             # Internal Server Error ("Cannot start container xxx:
@@ -127,10 +128,11 @@ def _run_cmd_in_docker_container(image_name, command, environment):
             return 127, None
         raise
     statuscode = client.wait(container=container['Id'])
-    return statuscode, client.logs(
-            container=container['Id'],
-            stdout=True, stderr=True if statuscode else False,
-            stream=False, timestamps=False)
+    logs = client.logs(
+        container=container['Id'], stream=False, timestamps=False,
+        stdout=True, stderr=True if statuscode else False,
+    )
+    return statuscode, logs.decode('utf-8') if isinstance(logs, binary_type) else logs
 
 
 def _extract_metadata_from_image_info_output(output):
